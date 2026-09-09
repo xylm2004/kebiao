@@ -169,6 +169,48 @@
     filter: grayscale(0.6);
   }
 
+  /* 国庆假期补课/调课：在周课表格子里的体现 */
+  .adj-hint {
+    margin: 12px auto 0;
+    max-width: 720px;
+    font-size: 12px;
+    line-height: 1.6;
+    text-align: center;
+    color: #92400e;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+    padding: 8px 14px;
+  }
+  .adj-wrap { position: relative; }
+  .adj-wrap .course {
+    box-shadow: 0 0 0 2px #f59e0b, 0 3px 10px rgba(245,158,11,0.25);
+    margin-top: 2px;
+  }
+  .adj-tag {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    color: #b45309;
+    background: #ffedd5;
+    border: 1px solid #fdba74;
+    border-radius: 5px;
+    padding: 2px 6px;
+    margin-bottom: 3px;
+    text-align: center;
+    line-height: 1.35;
+  }
+  .adj-note {
+    font-size: 11px;
+    line-height: 1.5;
+    color: #b45309;
+    background: #fffbeb;
+    border: 1px dashed #fcd34d;
+    border-radius: 6px;
+    padding: 5px 6px;
+    text-align: center;
+  }
+
   .legend {
     display: flex;
     flex-wrap: wrap;
@@ -281,6 +323,10 @@
         <button id="btnThisWeek">回到本周</button>
       </div>
     </div>
+
+    <div class="adj-hint">国庆补课/调课已标注在第 2、3、5、6、7、8 周的对应格子里：
+9/13(日)上9/30(三)的课 · 9/20(日)补10/2(五)的课 · 9/28(一)调至10/24(六) · 9/29(二)调至10/17(六) · 9/30(三)调至9/13(日) · 10/10(六)补10/5(一)的课。
+请用上方“切换到”选到对应周，查看当天格子内的标注。</div>
 
     <div class="table-wrap">
       <table>
@@ -511,6 +557,115 @@
         el.classList.toggle('active', on);
         el.classList.toggle('inactive', !on);
       });
+      renderAdj(week);
+    }
+
+    /* ============ 国庆假期补课/调课：在周课表格子里体现 ============
+       weekday 列：0=周一 … 6=周日。
+       ADJ：第 tw 周、第 tc 天（周末）上的是原“第 sw 周、第 sc 天”的课。
+       OFF：第 week 周、第 col 天本日停课（该日课程被调走 / 后补）。 */
+    var ADJ = [
+      { tw: 2, tc: 6, sc: 2, sw: 5, tag: '调课 · 9/13(日) 上 9/30(三)的课' },
+      { tw: 3, tc: 6, sc: 4, sw: 5, tag: '补课 · 9/20(日) 补 10/2(五)的课',
+        empty: '9/20(日)补课日 · 本班课表当日无课程（补10/2周五的课）' },
+      { tw: 6, tc: 5, sc: 0, sw: 6, tag: '补课 · 10/10(六) 补 10/5(一)的课' },
+      { tw: 7, tc: 5, sc: 1, sw: 5, tag: '调课 · 10/17(六) 上 9/29(二)的课' },
+      { tw: 8, tc: 5, sc: 0, sw: 5, tag: '调课 · 10/24(六) 上 9/28(一)的课' }
+    ];
+    var OFF = [
+      { week: 5, col: 0, note: '9/28(一)停课 · 课程调至 10/24(六)' },
+      { week: 5, col: 1, note: '9/29(二)停课 · 课程调至 10/17(六)' },
+      { week: 5, col: 2, note: '9/30(三)停课 · 课程调至 9/13(日)' },
+      { week: 6, col: 0, note: '10/5(一)停课 · 课程补至 10/10(六)' }
+    ];
+
+    var adjDash = [];
+    function adjDayCell(row, col) {
+      var cs = row.children;
+      return cs[cs.length - 7 + col];
+    }
+    function adjColCourses(col, week) {
+      var out = [];
+      var rows = document.querySelector('tbody').rows;
+      for (var i = 0; i < rows.length; i++) {
+        var cell = adjDayCell(rows[i], col);
+        if (!cell) continue;
+        var crs = cell.querySelectorAll('.course');
+        for (var j = 0; j < crs.length; j++) {
+          if (inWeeks(crs[j].getAttribute('data-weeks'), week)) {
+            out.push({ row: rows[i], cell: cell, c: crs[j] });
+          }
+        }
+      }
+      return out;
+    }
+    function adjClearDash(cell) {
+      if (cell.children.length) return;
+      if ((cell.textContent || '').trim() === '—') {
+        cell.textContent = '';
+        adjDash.push(cell);
+      }
+    }
+    function adjPut(cell, node) {
+      adjClearDash(cell);
+      cell.appendChild(node);
+    }
+    function adjNote(text) {
+      var d = document.createElement('div');
+      d.className = 'adj-note';
+      d.textContent = text;
+      return d;
+    }
+
+    function renderAdj(w) {
+      // 1) 清理上一周渲染留下的标注
+      var olds = document.querySelectorAll('.adj-wrap, .adj-note');
+      for (var x = 0; x < olds.length; x++) olds[x].remove();
+      var crs = document.querySelectorAll('.course');
+      for (var y = 0; y < crs.length; y++) crs[y].style.display = '';
+      for (var z = 0; z < adjDash.length; z++) adjDash[z].textContent = '—';
+      adjDash = [];
+
+      var i, j, a;
+
+      // 2) 停课日：当天所在周该列课程不显示，改为提示去向
+      for (i = 0; i < OFF.length; i++) {
+        if (OFF[i].week !== w) continue;
+        var list = adjColCourses(OFF[i].col, w);
+        for (j = 0; j < list.length; j++) {
+          list[j].c.style.display = 'none';
+        }
+        if (list.length) {
+          adjPut(list[0].cell, adjNote(OFF[i].note));
+        }
+      }
+
+      // 3) 补课/调课日：把调来的那天的课程放进当天(周末)的格子里
+      for (a = 0; a < ADJ.length; a++) {
+        var it = ADJ[a];
+        if (it.tw !== w) continue;
+        var src = adjColCourses(it.sc, it.sw);
+        if (!src.length) {
+          if (it.empty) {
+            var firstRow = document.querySelector('tbody').rows[0];
+            if (firstRow) adjPut(adjDayCell(firstRow, it.tc), adjNote(it.empty));
+          }
+          continue;
+        }
+        for (j = 0; j < src.length; j++) {
+          var wrap = document.createElement('div');
+          wrap.className = 'adj-wrap';
+          var tag = document.createElement('div');
+          tag.className = 'adj-tag';
+          tag.textContent = it.tag;
+          var clone = src[j].c.cloneNode(true);
+          clone.classList.remove('active', 'inactive');
+          clone.style.display = '';   // 源课程可能因“停课”被隐藏，克隆到补/调课日需正常显示
+          wrap.appendChild(tag);
+          wrap.appendChild(clone);
+          adjPut(adjDayCell(src[j].row, it.tc), wrap);
+        }
+      }
     }
 
     (function init() {
